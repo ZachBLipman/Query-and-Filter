@@ -1,0 +1,5 @@
+streamlit
+streamlit-sortables
+pandas
+openpyxl
+rapidfuzz
