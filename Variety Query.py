@@ -1,4 +1,4 @@
-# Smart Variety Search — Final Updated Version
+# Smart Variety Search — Updated with Independent Filter Match Type
 
 import streamlit as st
 import pandas as pd
@@ -329,6 +329,8 @@ if dataframes:
                 filter_groups.append({"column": column, "values": value_list, "logic": logic})
 
     global_filter_logic = st.radio("Global Row Filter Logic (combine filters with):", ["AND", "OR"])
+    filter_match_type = st.selectbox("Filter Match Type", options=["Partial (contains)", "Exact", "Starts with", "Ends with"], index=0)
+
     search_terms = [term.strip() for term in search_input.split(',') if term.strip()]
 
     if st.button("Search"):
@@ -358,13 +360,12 @@ if dataframes:
                 search_results,
                 filter_groups,
                 global_filter_logic,
-                match_type
+                filter_match_type
             )
 
         if search_results:
             st.success(f"Found {len(search_results)} matches.")
 
-            # Export button BEFORE results
             export_df = results_to_dataframe(search_results)
             csv = export_df.to_csv(index=False).encode('utf-8')
             st.download_button(
