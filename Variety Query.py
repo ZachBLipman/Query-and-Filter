@@ -337,7 +337,7 @@ if dataframes:
 
         if subtable_sheets:
             sub_df = {s: dataframes[s] for s in subtable_sheets}
-            search_results += find_matches_by_block_single_header(
+            search_results += find_matches_by_block_parallel(
                 sub_df,
                 search_terms if search_terms else [''],
                 match_type,
@@ -345,7 +345,7 @@ if dataframes:
             )
 
         if single_table_sheets:
-            search_results += find_matches_single_table(
+            search_results += find_matches_single_table_optimized(
                 dataframes,
                 single_table_sheets,
                 search_terms if search_terms else [''],
