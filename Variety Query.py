@@ -1,4 +1,4 @@
-# Optimized Smart Variety Search - Full Version with Vectorized & Parallel Parsing
+# Optimized Smart Variety Search — Full Copy-Paste Version
 
 import streamlit as st
 import pandas as pd
