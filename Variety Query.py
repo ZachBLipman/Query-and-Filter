@@ -1,13 +1,16 @@
-# Smart Variety Search — Updated with Independent Filter Match Type
+# Optimized Smart Variety Search - Full Version with Vectorized & Parallel Parsing
 
 import streamlit as st
 import pandas as pd
 import io
 import re
+import numpy as np
 from typing import List, Dict, Any, Tuple
 from streamlit_sortables import sort_items
+from concurrent.futures import ThreadPoolExecutor
 
 # --- File Loader ---
+@st.cache_data(show_spinner=False)
 def load_file(file_bytes: bytes, filename: str) -> Dict[str, pd.DataFrame]:
     if filename.endswith('.csv'):
         df = pd.read_csv(io.BytesIO(file_bytes), header=None)
@@ -18,9 +21,9 @@ def load_file(file_bytes: bytes, filename: str) -> Dict[str, pd.DataFrame]:
     else:
         raise ValueError("Unsupported file type. Please upload a CSV or Excel file.")
 
-# --- Column Block Detection ---
+# --- Column Block Detection (Optimized) ---
 def find_column_blocks(df: pd.DataFrame) -> List[Tuple[int, int]]:
-    is_empty_col = df.isna().all(axis=0)
+    is_empty_col = df.isnull().all().values
     blocks = []
     start = None
     for i, is_empty in enumerate(is_empty_col):
@@ -30,90 +33,93 @@ def find_column_blocks(df: pd.DataFrame) -> List[Tuple[int, int]]:
             blocks.append((start, i))
             start = None
     if start is not None:
-        blocks.append((start, len(df.columns)))
+        blocks.append((start, len(is_empty_col)))
     return blocks
 
-# --- Match Logic ---
-def is_match(cell: str, term: str, match_type: str) -> bool:
-    cell = str(cell).strip().lower()
+# --- Match Logic (Vectorized) ---
+def is_match_series(series: pd.Series, term: str, match_type: str) -> pd.Series:
     term = term.strip().lower()
+    series = series.astype(str).str.strip().str.lower()
     if match_type == "Exact":
-        return cell == term
+        return series == term
     elif match_type == "Partial (contains)":
-        return term in cell
+        return series.str.contains(re.escape(term), case=False, na=False)
     elif match_type == "Starts with":
-        return cell.startswith(term)
+        return series.str.startswith(term)
     elif match_type == "Ends with":
-        return cell.endswith(term)
-    return False
+        return series.str.endswith(term)
+    return pd.Series([False] * len(series))
 
 # --- Sub-Table Parsing ---
-def find_matches_by_block_single_header(dataframes: Dict[str, pd.DataFrame], search_terms: List[str], match_type: str, filter_columns: List[str] = None) -> List[Dict[str, Any]]:
-    def contains_filter_column(row, filter_cols):
-        row_str = row.astype(str).str.strip().str.lower()
-        return any(fc.lower() in row_str.values for fc in filter_cols)
-
+def parse_block(sheet_name, df, search_terms, match_type, filter_columns):
     results = []
-    for sheet_name, df in dataframes.items():
-        blocks = find_column_blocks(df)
-        for start_col, end_col in blocks:
-            sub_df = df.iloc[:, start_col:end_col]
-            sub_df_str = sub_df.astype(str)
-            header_row = None
-            data_start_idx = 0
+    blocks = find_column_blocks(df)
+    df_str = df.astype(str).apply(lambda x: x.str.strip().str.lower())
 
-            for i in range(len(sub_df)):
-                row = sub_df.iloc[i]
-                if not search_terms and filter_columns and contains_filter_column(row, filter_columns):
-                    header_row = list(row)
-                    data_start_idx = i + 1
+    for start_col, end_col in blocks:
+        sub_df = df.iloc[:, start_col:end_col]
+        sub_str = df_str.iloc[:, start_col:end_col]
+
+        header_row, data_start_idx = None, 0
+        for i in range(len(sub_df)):
+            row = sub_df.iloc[i]
+            if not search_terms and filter_columns and any(fc.lower() in row.astype(str).str.lower().values for fc in filter_columns):
+                header_row = list(row)
+                data_start_idx = i + 1
+                break
+            elif row.notna().all() and all(str(cell).strip() != "" for cell in row):
+                header_row = list(row)
+                data_start_idx = i + 1
+                break
+
+        if header_row is None:
+            header_row = list(sub_df.iloc[0])
+            data_start_idx = 1
+
+        for row_idx in range(data_start_idx, len(sub_df)):
+            row_str = sub_str.iloc[row_idx]
+            for term in search_terms:
+                if is_match_series(row_str, term, match_type).any():
+                    file_name, sheet = sheet_name.split(' - ', 1)
+                    row_values = list(sub_df.iloc[row_idx])
+                    row_values += [''] * (len(header_row) - len(row_values))
+                    results.append({
+                        'File': file_name,
+                        'Sheet': sheet,
+                        'Row': row_idx + 1,
+                        'Matched Term': term,
+                        'Headers': header_row,
+                        'Values': row_values
+                    })
                     break
-                elif row.notna().all() and all(str(cell).strip() != "" for cell in row):
-                    header_row = list(row)
-                    data_start_idx = i + 1
-                    break
+    return results
 
-            if header_row is None:
-                header_row = list(sub_df.iloc[0])
-                data_start_idx = 1
-
-            for row_idx in range(data_start_idx, len(sub_df)):
-                row_str = sub_df_str.iloc[row_idx]
-                for term in search_terms:
-                    if not term or row_str.apply(lambda val: is_match(val, term, match_type)).any():
-                        file_name, sheet = sheet_name.split(' - ', 1)
-                        row_values = list(sub_df.iloc[row_idx])
-                        row_values += [''] * (len(header_row) - len(row_values))
-                        results.append({
-                            'File': file_name,
-                            'Sheet': sheet,
-                            'Row': row_idx + 1,
-                            'Matched Term': term,
-                            'Headers': header_row,
-                            'Values': row_values
-                        })
-                        break
+# --- Parallel Runner for Sub-Tables ---
+def find_matches_by_block_parallel(dataframes: Dict[str, pd.DataFrame], search_terms: List[str], match_type: str, filter_columns: List[str] = None) -> List[Dict[str, Any]]:
+    results = []
+    with ThreadPoolExecutor() as executor:
+        futures = [executor.submit(parse_block, name, df, search_terms, match_type, filter_columns) for name, df in dataframes.items()]
+        for f in futures:
+            results.extend(f.result())
     return results
 
 # --- Single Table Parsing ---
-def find_matches_single_table(dataframes: Dict[str, pd.DataFrame], selected_sheets: List[str], search_terms: List[str], match_type: str, filter_columns: List[str] = None) -> List[Dict[str, Any]]:
-    def contains_filter_column(row, filter_cols):
-        row_str = row.astype(str).str.strip().str.lower()
-        return any(fc.lower() in row_str.values for fc in filter_cols)
-
+def find_matches_single_table_optimized(dataframes: Dict[str, pd.DataFrame], selected_sheets: List[str], search_terms: List[str], match_type: str, filter_columns: List[str] = None) -> List[Dict[str, Any]]:
     results = []
     for sheet_name in selected_sheets:
         df = dataframes[sheet_name]
         if df.empty:
             continue
 
+        df_str = df.astype(str).apply(lambda x: x.str.strip().str.lower())
         first_empty_col = next((i for i in range(len(df.columns)) if df.iloc[:, i].isna().all()), len(df.columns))
         col_block = df.iloc[:, :first_empty_col]
+        col_block_str = df_str.iloc[:, :first_empty_col]
 
         header_row_idx = None
         for i in range(len(col_block)):
             row = col_block.iloc[i]
-            if not search_terms and filter_columns and contains_filter_column(row, filter_columns):
+            if not search_terms and filter_columns and any(fc.lower() in row.astype(str).str.lower().values for fc in filter_columns):
                 header_row_idx = i
                 break
             elif row.notna().all() and all(str(cell).strip() != "" for cell in row):
@@ -124,28 +130,20 @@ def find_matches_single_table(dataframes: Dict[str, pd.DataFrame], selected_shee
             header_row_idx = 0
 
         header_row = col_block.iloc[header_row_idx]
-        valid_col_indices = []
-        found_first = False
-        for i, val in enumerate(header_row):
-            if pd.notna(val) and str(val).strip():
-                found_first = True
-                valid_col_indices.append(i)
-            elif found_first:
-                break
+        valid_col_indices = [i for i, val in enumerate(header_row) if pd.notna(val) and str(val).strip()]
 
         if not valid_col_indices:
             continue
 
         headers = [str(header_row[i]) for i in valid_col_indices]
-        data = col_block.iloc[header_row_idx + 1:, valid_col_indices]
+        data = col_block.iloc[header_row_idx + 1:, valid_col_indices].reset_index(drop=True)
+        data_str = col_block_str.iloc[header_row_idx + 1:, valid_col_indices].reset_index(drop=True)
         data.columns = headers
-        data = data.reset_index(drop=True)
-        data_str = data.astype(str)
 
         for row_idx in range(len(data)):
             row_str = data_str.iloc[row_idx]
             for term in search_terms:
-                if not term or row_str.apply(lambda val: is_match(val, term, match_type)).any():
+                if is_match_series(row_str, term, match_type).any():
                     file_name, sheet = sheet_name.split(' - ', 1)
                     row_values = list(data.iloc[row_idx])
                     row_values += [''] * (len(headers) - len(row_values))
