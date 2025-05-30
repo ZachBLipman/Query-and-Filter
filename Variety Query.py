@@ -364,39 +364,36 @@ if dataframes:
         if search_results:
             st.success(f"Found {len(search_results)} matches.")
 
-    # CSV download stays always available
-    export_df = results_to_dataframe(search_results)
-    csv = export_df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        "Download Results as CSV",
-        data=csv,
-        file_name="multi_file_search_results.csv",
-        mime='text/csv'
+# CSV download is always available
+export_df = results_to_dataframe(search_results)
+csv = export_df.to_csv(index=False).encode('utf-8')
+st.download_button(
+    "Download Results as CSV",
+    data=csv,
+    file_name="multi_file_search_results.csv",
+    mime='text/csv'
+)
+
+# Display toggle options
+display_option = st.radio(
+    "How would you like to display results?",
+    options=["Show All", "Show First N Matches", "Don't Show Any"],
+    index=0,
+    horizontal=True
+)
+
+if display_option == "Show First N Matches":
+    max_to_show = st.number_input(
+        "Enter number of results to show",
+        min_value=1,
+        max_value=len(search_results),
+        value=min(10, len(search_results)),
+        step=1
     )
+    display_results(search_results[:max_to_show], match_type)
 
-    # Display toggle options
-    display_option = st.radio(
-        "How would you like to display results?",
-        options=["Show All", "Show First N Matches", "Don't Show Any"],
-        index=0,
-        horizontal=True
-    )
-
-    if display_option == "Show First N Matches":
-        max_to_show = st.number_input(
-            "Enter number of results to show",
-            min_value=1,
-            max_value=len(search_results),
-            value=min(10, len(search_results)),
-            step=1
-        )
-        display_results(search_results[:max_to_show], match_type)
-
-    elif display_option == "Show All":
-        display_results(search_results, match_type)
-
-    else:
-        st.info("Result display is turned off. You can still download the results above.")
+elif display_option == "Show All":
+    display_results(search_results, match_type)
 
 else:
-    st.warning("No matches found for the current search and filter criteria.")
+    st.info("Result display is turned off. You can still download the results above.")
