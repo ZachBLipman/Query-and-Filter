@@ -361,8 +361,8 @@ if dataframes:
                 filter_match_type
             )
 
-                if search_results:
-            st.success(f"Found {len(search_results)} matches.")
+            if search_results:
+                    st.success(f"Found {len(search_results)} matches.")
 
             # CSV download is always available
             export_df = results_to_dataframe(search_results)
