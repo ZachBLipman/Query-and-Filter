@@ -330,23 +330,25 @@ if dataframes:
     filter_match_type = st.selectbox("Filter Match Type", options=["Partial (contains)", "Exact", "Starts with", "Ends with"], index=0)
 
     search_terms = [term.strip() for term in search_input.split(',') if term.strip()]
-    
-display_option = st.radio(
-    "How would you like to display results?",
-    options=["Show All", "Show First N Matches", "Don't Show Any"],
-    index=0,
-    horizontal=True
-)
 
-max_to_show = None
-if display_option == "Show First N Matches":
-    max_to_show = st.number_input(
-        "Enter number of results to show",
-        min_value=1,
-        value=10,
-        step=1
+    # --- Display Options BEFORE Search ---
+    display_option = st.radio(
+        "How would you like to display results?",
+        options=["Show All", "Show First N Matches", "Don't Show Any"],
+        index=0,
+        horizontal=True
     )
 
+    max_to_show = None
+    if display_option == "Show First N Matches":
+        max_to_show = st.number_input(
+            "Enter number of results to show",
+            min_value=1,
+            value=10,
+            step=1
+        )
+
+    # --- Search Button ---
     if st.button("Search"):
         search_results = []
         filter_columns = [f['column'] for f in filter_groups] if filter_groups else None
@@ -377,23 +379,28 @@ if display_option == "Show First N Matches":
                 filter_match_type
             )
 
-            if search_results:
-                st.success(f"Found {len(search_results)} matches.")
+        if search_results:
+            st.success(f"Found {len(search_results)} matches.")
 
-    export_df = results_to_dataframe(search_results)
-    csv = export_df.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        "Download Results as CSV",
-        data=csv,
-        file_name="multi_file_search_results.csv",
-        mime='text/csv'
-    )
+            # Export results to CSV
+            export_df = results_to_dataframe(search_results)
+            csv = export_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                "Download Results as CSV",
+                data=csv,
+                file_name="multi_file_search_results.csv",
+                mime='text/csv'
+            )
 
-    if display_option == "Show First N Matches" and max_to_show:
-        display_results(search_results[:int(max_to_show)], match_type)
+            # Display results based on user toggle
+            if display_option == "Show First N Matches" and max_to_show:
+                display_results(search_results[:int(max_to_show)], match_type)
 
-    elif display_option == "Show All":
-        display_results(search_results, match_type)
+            elif display_option == "Show All":
+                display_results(search_results, match_type)
 
-    else:
-        st.info("Result display is turned off. You can still download the results above.")
+            else:
+                st.info("Result display is turned off. You can still download the results above.")
+
+        else:
+            st.warning("No matches found for the current search and filter criteria.")
