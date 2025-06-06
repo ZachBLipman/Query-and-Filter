@@ -332,7 +332,7 @@ if dataframes:
                 filter_groups.append({"column": column, "values": value_list, "logic": logic})
 
     global_filter_logic = st.radio("Global Row Filter Logic (combine filters with):", ["AND", "OR"])
-    filter_match_type = st.selectbox("Filter Match Type", options=["Partial (contains)", "Exact", "Starts with", "Ends with", "Does NOT Contain"], index=0)
+    filter_match_type = st.selectbox("Filter Match Type", options=["Partial (contains)", "Exact", "Starts with", "Ends with", "Does NOT contain"], index=0)
 
     search_terms = [term.strip() for term in search_input.split(',') if term.strip()]
 
