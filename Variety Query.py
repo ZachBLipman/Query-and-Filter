@@ -167,6 +167,7 @@ def match_filter_group(row_dict: Dict[str, Any], filter_group: Dict[str, Any], m
     if col_input not in normalized_dict:
         return False
     cell_value = str(normalized_dict[col_input])
+
     def matches(val):
         if match_type == "Exact":
             return cell_value.strip().lower() == val.strip().lower()
@@ -176,9 +177,13 @@ def match_filter_group(row_dict: Dict[str, Any], filter_group: Dict[str, Any], m
             return cell_value.strip().lower().startswith(val.strip().lower())
         elif match_type == "Ends with":
             return cell_value.strip().lower().endswith(val.strip().lower())
+        elif match_type == "Does NOT contain":
+            return val.strip().lower() not in cell_value.strip().lower()
         return False
+
     match_results = [matches(v) for v in values]
     return all(match_results) if logic == "AND" else any(match_results)
+
 
 def apply_advanced_filters(results: List[Dict[str, Any]], filters: List[Dict[str, Any]], global_logic: str, match_type: str) -> List[Dict[str, Any]]:
     filtered = []
@@ -327,7 +332,7 @@ if dataframes:
                 filter_groups.append({"column": column, "values": value_list, "logic": logic})
 
     global_filter_logic = st.radio("Global Row Filter Logic (combine filters with):", ["AND", "OR"])
-    filter_match_type = st.selectbox("Filter Match Type", options=["Partial (contains)", "Exact", "Starts with", "Ends with"], index=0)
+    filter_match_type = st.selectbox("Filter Match Type", options=["Partial (contains)", "Exact", "Starts with", "Ends with", "Does NOT Contain"], index=0)
 
     search_terms = [term.strip() for term in search_input.split(',') if term.strip()]
 
